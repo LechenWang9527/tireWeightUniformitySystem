@@ -1,0 +1,38 @@
+# ---- Python ----
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# ---- Node / 前端 ----
+node_modules/
+frontend/dist/
+npm-debug.log*
+
+# ---- 数据（公司业务数据，严禁入库）----
+backend/data/*.parquet
+backend/data/*.csv
+backend/data/*.duckdb
+backend/data/cgrs_data/*
+backend/data/duckdb_tmp/*
+!backend/data/cgrs_data/.gitkeep
+!backend/data/duckdb_tmp/.gitkeep
+logs/
+backend/logs/
+scratch/
+
+# ---- 凭据（切勿提交）----
+backend/config/db_config.json
+backend/config/ai_config.json
+backend/config/secret.key
+backend/config/etl_state.json
+*.key
+*.pem
+
+# ---- 模板文件必须入库 ----
+!backend/config/*.example.json
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db
+desktop.ini

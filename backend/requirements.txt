@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+duckdb
+pandas
+scikit-learn
+numpy
+psycopg2-binary
+pyarrow

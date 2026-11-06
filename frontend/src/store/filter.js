@@ -1,0 +1,331 @@
+import { defineStore } from 'pinia'
+import { ref, computed } from 'vue'
+
+export const useFilterStore = defineStore('filter', () => {
+  // 当前选中的规格型号（仅限 Tab 1 本地趋势下钻过滤，已与 Tab 2 & 3 诊断解耦）
+  const selectedArticle = ref(null)
+
+  // 全局期别筛选状态：'all' | 'p3' | 'p4'
+  const selectedPhase = ref('all')
+
+  function setSelectedPhase(val) {
+    selectedPhase.value = val
+  }
+
+  // 全局日期范围 [dateFrom, dateTo]
+  const dateRange = ref(null)
+
+  // 趋势粒度：'daily' | 'weekly'
+  const trendGranularity = ref('daily')
+
+  // 全局 CPK 指标切换状态：'rfpp' | 'rfh1'
+  const cpkIndicator = ref('rfpp')
+
+  // 基础 17 项指标分组配置 (TU, TG, TB)
+  const BASE_INDICATOR_GROUPS = [
+    {
+      group: 'TU',
+      label: 'TU',
+      options: [
+        { label: 'RFPP', value: 'rfpp' },
+        { label: 'RFH1', value: 'rfh1' },
+        { label: 'RFH2', value: 'rfh2' },
+        { label: 'LFPP', value: 'lfpp' },
+        { label: 'LFH1', value: 'lfh1' },
+        { label: 'CONY', value: 'cony' },
+        { label: 'PLYS', value: 'plys' }
+      ]
+    },
+    {
+      group: 'TG',
+      label: 'TG',
+      options: [
+        { label: 'TBUL', value: 'tbul' },
+        { label: 'BBUL', value: 'bbul' },
+        { label: 'TDEP', value: 'tdep' },
+        { label: 'BDEP', value: 'bdep' },
+        { label: 'TLRO', value: 'tlro' },
+        { label: 'BLRO', value: 'blro' },
+        { label: 'CRRO', value: 'crro' }
+      ]
+    },
+    {
+      group: 'TB',
+      label: 'TB',
+      options: [
+        { label: 'TBALW', value: 'tbalw' },
+        { label: 'BBALW', value: 'bbalw' },
+        { label: 'SBALW', value: 'sbalw' }
+      ]
+    }
+  ]
+
+  // 响应式指标分组列表（支持选中日期后动态置顶排行第一工序与指标增幅排序）
+  const indicatorGroups = ref(JSON.parse(JSON.stringify(BASE_INDICATOR_GROUPS)))
+
+  function updateIndicatorPriority(topProcess, detailIndicators, date, highlightIndicator = null) {
+    if (!date || !topProcess) {
+      indicatorGroups.value = JSON.parse(JSON.stringify(BASE_INDICATOR_GROUPS))
+      return
+    }
+
+    const groupsCopy = JSON.parse(JSON.stringify(BASE_INDICATOR_GROUPS))
+    
+    // 如果有 detailIndicators，对各分组内的选项按增幅排序并附加增幅文案
+    if (detailIndicators) {
+      for (const grp of groupsCopy) {
+        const details = detailIndicators[grp.group]
+        if (details && Array.isArray(details) && details.length > 0) {
+          // 目标高亮推荐项：若未显式指定，则在第一工序中顺延选取首个当日异常数 >= 50 的指标
+          let targetKey = highlightIndicator
+          if (!targetKey && grp.group === topProcess) {
+            const ge50 = details.find(it => (it.count || 0) >= 50)
+            targetKey = ge50 ? ge50.key : (details[0]?.key || null)
+          }
+
+          grp.options = details.map((d, dIdx) => {
+            let growthText = '-'
+            let growthClass = 'neutral'
+            if (d.growth_rate !== null && d.growth_rate !== undefined) {
+              if (d.growth_rate > 0) {
+                growthText = `+${d.growth_rate}%`
+                growthClass = 'up'
+              } else if (d.growth_rate < 0) {
+                growthText = `${d.growth_rate}%`
+                growthClass = 'down'
+              } else {
+                growthText = '0.00%'
+                growthClass = 'neutral'
+              }
+            }
+            const isTargetMax = targetKey 
+              ? (d.key === targetKey || d.value === targetKey)
+              : (dIdx === 0)
+            return {
+              label: d.label || d.key.toUpperCase(),
+              value: d.key,
+              growthRate: d.growth_rate,
+              growthText,
+              growthClass,
+              count: d.count,
+              rate: d.rate,
+              prevCount: d.prev_count,
+              prevDate: d.prev_date,
+              nextCount: d.next_count,
+              nextDate: d.next_date,
+              currDate: d.date || date,
+              isMax: grp.group === topProcess && isTargetMax
+            }
+          })
+        }
+      }
+    }
+
+    // 将排行第一的工序组优先置顶
+    const topGroup = groupsCopy.find(g => g.group === topProcess)
+    const otherGroups = groupsCopy.filter(g => g.group !== topProcess)
+    if (topGroup) {
+      indicatorGroups.value = [topGroup, ...otherGroups]
+    } else {
+      indicatorGroups.value = groupsCopy
+    }
+  }
+
+  // 全局时间维度选择（默认：终检 TU 时间）
+  const selectedTimeCol = ref('tu_first_loc_timestamp')
+
+  const timeColOptions = [
+    { label: '终检 TU 时间 (默认)', value: 'tu_first_loc_timestamp' },
+    { label: '成型 GT 时间', value: 'gt_loc_timestamp' },
+    { label: '硫化 CT 时间', value: 'ct_loc_timestamp' },
+    { label: '动平衡 TB 时间', value: 'tb_first_shift_date' },
+    { label: '胎面时间', value: 'tread_loc_timestamp' },
+    { label: '胎圈时间', value: 'bead_loc_timestamp' },
+    { label: '内衬时间', value: 'inner_liner_loc_timestamp' },
+    { label: '胎侧时间', value: 'sidewall_loc_timestamp' },
+    { label: '带束层1时间', value: 'first_breaker_loc_timestamp' },
+    { label: '带束层2时间', value: 'second_breaker_loc_timestamp' },
+    { label: '帘布层1时间', value: 'first_ply_loc_timestamp' },
+    { label: '帘布层2时间', value: 'second_ply_loc_timestamp' },
+    { label: '冠带层1时间', value: 'wound_cap_ply1_loc_timestamp' },
+    { label: '冠带层2时间', value: 'wound_cap_ply2_loc_timestamp' }
+  ]
+
+  function setSelectedTimeCol(val) {
+    selectedTimeCol.value = val
+  }
+
+  // 全局班组选择（默认：全天 08-08 'all'）
+  const selectedShift = ref('all')
+
+  const shiftOptions = [
+    { label: '全天 (08:00-08:00)', value: 'all' },
+    { label: '早班 (08:00-16:00)', value: 'morning' },
+    { label: '中班 (16:00-24:00)', value: 'middle' },
+    { label: '晚班 (24:00-08:00)', value: 'night' }
+  ]
+
+  function setSelectedShift(val) {
+    selectedShift.value = val
+  }
+
+  // 数据最后更新时间
+  const dataUpdateTime = ref('')
+
+  function setDataUpdateTime(val) {
+    dataUpdateTime.value = val
+  }
+
+  // 胎重指标的偏差公差限 (%)，默认为 0.8
+  const weightTolerance = ref(0.8)
+
+  // 是否处于下钻状态
+  const isDrillDown = ref(false)
+  const drillDownTarget = ref(null)
+
+  // 基准期日期范围 [dateFrom, dateTo]
+  const baselineRange = ref(null)
+
+  // 研究期日期范围 [dateFrom, dateTo]
+  const studyRange = ref(null)
+
+  // 当前激活的 Tab 页: 'overview' | 'rootcase' | 'diagnose'
+  const activeTab = ref('overview')
+
+  // 样本量过滤门槛（用户自定义输入，默认 50，取代原硬编码 50/0 布尔值）
+  const minYieldThreshold = ref(50)
+  
+  // 保留原有变量兼容性：当门槛值大于 0 时，即视为启用了过滤，且支持 v-model 修改
+  const filterLowYield = computed({
+    get: () => minYieldThreshold.value > 0,
+    set: (val) => {
+      minYieldThreshold.value = val ? 50 : 0
+    }
+  })
+
+  // ── 跳转交互状态：Tab 2 联动至 Tab 3 深度诊断 ─────────────────────
+  const selectedMachineName = ref(null)
+  const selectedMachineWorkcenter = ref(null)
+  const selectedMachineCluster = ref(0)
+
+  // 计算属性：是否设置了分析周期（基准期与研究期都设置完整）
+  const hasAnalysisPeriod = computed(() => {
+    return !!(
+      baselineRange.value &&
+      baselineRange.value.length === 2 &&
+      studyRange.value &&
+      studyRange.value.length === 2
+    )
+  })
+
+  function setArticle(article) {
+    selectedArticle.value = article
+  }
+
+  function setDateRange(range) {
+    dateRange.value = range
+  }
+
+  function setGranularity(g) {
+    trendGranularity.value = g
+  }
+
+  function setCpkIndicator(val) {
+    cpkIndicator.value = val
+  }
+
+  function drillDown(article) {
+    isDrillDown.value = true
+    drillDownTarget.value = article
+    selectedArticle.value = article
+  }
+
+  function resetDrillDown() {
+    isDrillDown.value = false
+    drillDownTarget.value = null
+    selectedArticle.value = null
+  }
+
+  function setBaselineRange(range) {
+    baselineRange.value = range
+  }
+
+  function setStudyRange(range) {
+    studyRange.value = range
+  }
+
+  function setActiveTab(tab) {
+    activeTab.value = tab
+  }
+
+  function setMinYieldThreshold(val) {
+    minYieldThreshold.value = Number(val) || 0
+  }
+
+  function setDiagnosticMachine(machine, workcenter, cluster = 0) {
+    selectedMachineName.value = machine
+    selectedMachineWorkcenter.value = workcenter
+    selectedMachineCluster.value = Number(cluster) || 0
+  }
+
+  function reset() {
+    selectedArticle.value = null
+    dateRange.value = null
+    trendGranularity.value = 'daily'
+    isDrillDown.value = false
+    drillDownTarget.value = null
+    baselineRange.value = null
+    studyRange.value = null
+    activeTab.value = 'overview'
+    minYieldThreshold.value = 50
+    selectedMachineName.value = null
+    selectedMachineWorkcenter.value = null
+    selectedMachineCluster.value = 0
+    selectedPhase.value = 'all'
+    selectedShift.value = 'all'
+    indicatorGroups.value = JSON.parse(JSON.stringify(BASE_INDICATOR_GROUPS))
+  }
+
+  return {
+    selectedArticle,
+    selectedPhase,
+    setSelectedPhase,
+    selectedShift,
+    shiftOptions,
+    setSelectedShift,
+    dateRange,
+    trendGranularity,
+    isDrillDown,
+    drillDownTarget,
+    baselineRange,
+    studyRange,
+    activeTab,
+    minYieldThreshold,
+    filterLowYield,
+    selectedMachineName,
+    selectedMachineWorkcenter,
+    selectedMachineCluster,
+    hasAnalysisPeriod,
+    cpkIndicator,
+    indicatorGroups,
+    updateIndicatorPriority,
+    selectedTimeCol,
+    timeColOptions,
+    weightTolerance,
+    dataUpdateTime,
+    setDataUpdateTime,
+    setArticle,
+    setDateRange,
+    setGranularity,
+    setCpkIndicator,
+    setSelectedTimeCol,
+    drillDown,
+    resetDrillDown,
+    setBaselineRange,
+    setStudyRange,
+    setActiveTab,
+    setMinYieldThreshold,
+    setDiagnosticMachine,
+    reset,
+  }
+})

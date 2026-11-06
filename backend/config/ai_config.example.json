@@ -1,0 +1,7 @@
+{
+  "_说明": "Wiki AI 助手配置模板。复制为 ai_config.json 后填入真实值；不填则该功能不可用，不影响看板",
+  "provider": "openai-compatible",
+  "base_url": "https://your-llm-endpoint/v1",
+  "api_key": "sk-REPLACE_ME",
+  "model": "your-model-name"
+}
